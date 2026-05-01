@@ -7,7 +7,7 @@ import sqlite3
 import requests
 from datetime import datetime, timedelta, time, date
 
-# --- 1. EKRAN AYARLARI ---
+# --- 1. EKRAN VE TASARIM AYARLARI ---
 st.set_page_config(page_title="Radar Pro v2.5", layout="wide")
 st.markdown("""
     <style>
@@ -16,11 +16,11 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. ANALİZ PARAMETRELERİ (SABİT) ---
+# --- 2. ANALİZ PARAMETRELERİ ---
 P_HASSASIYET = 0.010
 RITIM_RISK = 1.6
 
-# --- 3. FONKSİYONLAR ---
+# --- 3. FONKSİYONLAR (GELİŞMİŞ ARŞİV VE DEPREM) ---
 @st.cache_data(ttl=600)
 def depremleri_getir():
     try:
@@ -32,7 +32,7 @@ def depremleri_getir():
         for f in data['features']:
             p = f['properties']
             utc_dt = datetime.strptime(p['time'][:19], "%Y-%m-%dT%H:%M:%S")
-            tsi_dt = utc_dt + timedelta(hours=3) # Türkiye Saati
+            tsi_dt = utc_dt + timedelta(hours=3)
             events.append({"Zaman": tsi_dt.strftime("%H:%M:%S"), "Buyukluk": p['mag']})
         return pd.DataFrame(events)
     except: return pd.DataFrame()
@@ -61,15 +61,19 @@ def dosya_oku(dosya_yolu):
 
 def db_arsiv_cek(secili_tarih, bas_saat, bit_saat):
     try:
+        if not os.path.exists("radar_gecmisi.db"): return pd.DataFrame()
         conn = sqlite3.connect("radar_gecmisi.db")
         df_db = pd.read_sql("SELECT * FROM sinyaller", conn)
         conn.close()
+        
         if not df_db.empty:
-            df_db['Z_Obj'] = pd.to_datetime(df_db['Z_Obj'])
-            df_db['Saat_Obj'] = df_db['Z_Obj'].dt.time
+            # Tarih/Saat garipliklerini çözen esnek dönüştürme
+            df_db['Z_Obj'] = pd.to_datetime(df_db['Z_Obj'], errors='coerce')
+            df_db = df_db.dropna(subset=['Z_Obj'])
+            
             mask = (df_db['Z_Obj'].dt.date == secili_tarih) & \
-                   (df_db['Saat_Obj'] >= bas_saat) & \
-                   (df_db['Saat_Obj'] <= bit_saat)
+                   (df_db['Z_Obj'].dt.time >= bas_saat) & \
+                   (df_db['Z_Obj'].dt.time <= bit_saat)
             return df_db.loc[mask]
     except: pass
     return pd.DataFrame()
@@ -93,13 +97,25 @@ if menu == "📂 Arşiv":
     st.subheader(f"📂 {arsiv_gun} Tarihli Arşiv Kayıtları")
     df_arsiv = db_arsiv_cek(arsiv_gun, bas_s, bit_s)
     if not df_arsiv.empty:
+        df_deprem = depremleri_getir()
         fig_arsiv = go.Figure()
         fig_arsiv.add_trace(go.Scatter(x=df_arsiv['Zaman'], y=df_arsiv['Deger'], mode='lines', line=dict(color='#00ff00', width=1)))
+        
+        # Arşivde Deprem Çizgileri
+        if not df_deprem.empty:
+            for _, dep in df_deprem.iterrows():
+                dep_dk = dep['Zaman'][:5]
+                for z in df_arsiv['Zaman'].unique():
+                    if z[:5] == dep_dk:
+                        fig_arsiv.add_vline(x=z, line_width=3, line_dash="dash", line_color="orange")
+                        fig_arsiv.add_annotation(x=z, y=df_arsiv['Deger'].max(), text=f"M{dep['Buyukluk']}", showarrow=True, bgcolor="orange")
+                        break
+
         fig_arsiv.update_layout(template='plotly_dark', height=500, xaxis=dict(nticks=15, tickangle=0))
         st.plotly_chart(fig_arsiv, use_container_width=True)
         st.dataframe(df_arsiv[::-1], use_container_width=True, hide_index=True)
     else:
-        st.info(f"{arsiv_gun} tarihinde bu saatlerde kayıt bulunamadı.")
+        st.info("Seçili tarih ve saatte kayıt bulunamadı. Lütfen DB dosyasını kontrol edin.")
 
 elif (menu == "🔴 Canlı Akış" or menu == "⏱️ Ritim Geçmişi") and secili_dosya:
     df = dosya_oku(secili_dosya)
@@ -135,10 +151,9 @@ elif (menu == "🔴 Canlı Akış" or menu == "⏱️ Ritim Geçmişi") and seci
             if len(p_idx) > 0:
                 fig.add_trace(go.Scatter(x=df.iloc[p_idx]['Zaman'], y=df.iloc[p_idx]['Deger'], mode='markers', marker=dict(color='red', size=6), name="Peak"))
             
-            # --- DEPREM ÇİZGİSİ (DAKİKA BAZLI KESİN ÇÖZÜM) ---
             if not df_deprem.empty:
                 for _, dep in df_deprem.iterrows():
-                    dep_dk = dep['Zaman'][:5] # Saniyeyi at, dakika al
+                    dep_dk = dep['Zaman'][:5]
                     for z in df['Zaman'].unique():
                         if z[:5] == dep_dk:
                             fig.add_vline(x=z, line_width=3, line_dash="dash", line_color="orange")
