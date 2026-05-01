@@ -24,7 +24,7 @@ RITIM_RISK = 1.6
 @st.cache_data(ttl=600)
 def depremleri_getir():
     try:
-        # Büyüklük sınırı 3.0 yapıldı
+        # Büyüklük sınırı 3.0 yapıldı (Küçük depremleri yakalamak için)
         url = "https://seismicportal.eu"
         resp = requests.get(url, timeout=10)
         data = resp.json()
@@ -32,7 +32,7 @@ def depremleri_getir():
         for f in data['features']:
             p = f['properties']
             utc_dt = datetime.strptime(p['time'][:19], "%Y-%m-%dT%H:%M:%S")
-            tsi_dt = utc_dt + timedelta(hours=3)
+            tsi_dt = utc_dt + timedelta(hours=3) # Türkiye Saati
             events.append({"Zaman": tsi_dt.strftime("%H:%M:%S"), "Buyukluk": p['mag']})
         return pd.DataFrame(events)
     except: return pd.DataFrame()
@@ -67,7 +67,6 @@ def db_arsiv_cek(secili_tarih, bas_saat, bit_saat):
         if not df_db.empty:
             df_db['Z_Obj'] = pd.to_datetime(df_db['Z_Obj'])
             df_db['Saat_Obj'] = df_db['Z_Obj'].dt.time
-            # Tarih ve Saat Filtreleme
             mask = (df_db['Z_Obj'].dt.date == secili_tarih) & \
                    (df_db['Saat_Obj'] >= bas_saat) & \
                    (df_db['Saat_Obj'] <= bit_saat)
@@ -100,7 +99,7 @@ if menu == "📂 Arşiv":
         st.plotly_chart(fig_arsiv, use_container_width=True)
         st.dataframe(df_arsiv[::-1], use_container_width=True, hide_index=True)
     else:
-        st.info("Seçili tarih ve saatte kayıt bulunamadı.")
+        st.info(f"{arsiv_gun} tarihinde bu saatlerde kayıt bulunamadı.")
 
 elif (menu == "🔴 Canlı Akış" or menu == "⏱️ Ritim Geçmişi") and secili_dosya:
     df = dosya_oku(secili_dosya)
@@ -136,11 +135,15 @@ elif (menu == "🔴 Canlı Akış" or menu == "⏱️ Ritim Geçmişi") and seci
             if len(p_idx) > 0:
                 fig.add_trace(go.Scatter(x=df.iloc[p_idx]['Zaman'], y=df.iloc[p_idx]['Deger'], mode='markers', marker=dict(color='red', size=6), name="Peak"))
             
+            # --- DEPREM ÇİZGİSİ (DAKİKA BAZLI KESİN ÇÖZÜM) ---
             if not df_deprem.empty:
                 for _, dep in df_deprem.iterrows():
-                    if df['Zaman'].min() <= dep['Zaman'] <= df['Zaman'].max():
-                        fig.add_vline(x=dep['Zaman'], line_width=3, line_dash="dash", line_color="orange")
-                        fig.add_annotation(x=dep['Zaman'], y=df['Deger'].max(), text=f"M{dep['Buyukluk']}", showarrow=True, bgcolor="orange", font=dict(color="black"))
+                    dep_dk = dep['Zaman'][:5] # Saniyeyi at, dakika al
+                    for z in df['Zaman'].unique():
+                        if z[:5] == dep_dk:
+                            fig.add_vline(x=z, line_width=3, line_dash="dash", line_color="orange")
+                            fig.add_annotation(x=z, y=df['Deger'].max(), text=f"M{dep['Buyukluk']}", showarrow=True, bgcolor="orange", font=dict(color="black"))
+                            break
 
             fig.update_layout(template='plotly_dark', height=450, margin=dict(l=10, r=10, t=10, b=10), xaxis=dict(nticks=10, tickangle=0))
             st.plotly_chart(fig, use_container_width=True)
