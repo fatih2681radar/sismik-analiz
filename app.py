@@ -17,11 +17,11 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 2. ANALİZ PARAMETRELERİ ---
-P_HASSASIYET = 0.020
+P_HASSASIYET = 0.030
 RITIM_RISK = 1.6
 
 # --- 3. FONKSİYONLAR (GELİŞMİŞ ARŞİV VE DEPREM) ---
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=30)
 def depremleri_getir():
     try:
         # Büyüklük sınırı 3.0 yapıldı (Küçük depremleri yakalamak için)
