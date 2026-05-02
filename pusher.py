@@ -4,18 +4,15 @@ import subprocess
 import shutil
 
 # --- AYARLAR ---
-BEKLEME_SURESI = 15  # 30 saniyede bir internete veri fırlatır
+BEKLEME_SURESI = 30  # 30 saniyede bir kontrol eder ve gönderir
 
 def git_yolu_bul():
-    # Sistemde 'git' komutu kayıtlı mı?
     yol = shutil.which("git")
     if yol: return yol
     
-    # Yaygın Windows yollarını kontrol et
     muhtemel_yollar = [
         r"C:\Program Files\Git\bin\git.exe",
         r"C:\Program Files\Git\cmd\git.exe",
-        os.path.expanduser(r"~\AppData\Local\GitHubDesktop\app-3.3.13\resources\app\git\cmd\git.exe"),
         os.path.expanduser(r"~\AppData\Local\GitHubDesktop\bin\git.exe")
     ]
     
@@ -27,30 +24,40 @@ def github_gonder():
     git_exe = git_yolu_bul()
     
     if not git_exe:
-        print("❌ HATA: Git bulunamadı! Lütfen Git'in kurulu olduğundan emin olun.")
+        print("❌ HATA: Git bulunamadı!")
         return
 
     try:
-        print(f"[{time.strftime('%H:%M:%S')}] Veriler internete (GitHub) fırlatılıyor...")
-        
-        # Değişiklikleri tara
+        # 1. Değişiklikleri tara
         subprocess.run([git_exe, "add", "."], check=True)
         
-        # Paketle
-        subprocess.run([git_exe, "commit", "-m", "Oto-Guncelleme"], capture_output=True)
+        # 2. Değişiklik var mı kontrol et (Boş commit atmamak için)
+        status = subprocess.run([git_exe, "diff", "--cached", "--quiet"])
+        if status.returncode == 0:
+            print(f"[{time.strftime('%H:%M:%S')}] Değişiklik yok, bekleniyor...")
+            return
+
+        print(f"[{time.strftime('%H:%M:%S')}] Değişiklik algılandı, gönderiliyor...")
+
+        # 3. Paketle
+        subprocess.run([git_exe, "commit", "-m", "Oto-Veri-Guncelleme"], capture_output=True)
         
-        # Gönder
+        # 4. Önce Uzaktaki Değişiklikleri Al (Çakışma Önleyici)
+        subprocess.run([git_exe, "pull", "origin", "main", "--rebase"], capture_output=True)
+        
+        # 5. Gönder
         subprocess.run([git_exe, "push", "origin", "main"], check=True)
         
         print("✅ Başarılı: Veriler seismicradar.streamlit.app adresine uçtu!")
-    except subprocess.CalledProcessError as e:
-        if e.returncode == 1:
-            print("ℹ️ Değişiklik yok, bekleniyor...")
-        else:
-            print(f"⚠️ Gönderim hatası (İnternet veya Yetki): {e}")
 
-print("🚀 Sismik Otomatik Yükleyici (v2.0) Başlatıldı!")
-print("Sistemi durdurmak için bu pencereyi kapatabilir veya Ctrl+C yapabilirsiniz.")
+    except subprocess.CalledProcessError as e:
+        print(f"⚠️ Bir sorun oluştu (İnternet veya Yetki hatası olabilir): {e}")
+    except Exception as e:
+        print(f"🚨 Beklenmedik hata: {e}")
+
+print("🚀 Sismik Otomatik Yükleyici v3.0 - SAĞLAM MOD")
+print(f"Gecikme: {BEKLEME_SURESI} saniye.")
+print("-" * 40)
 
 while True:
     github_gonder()
