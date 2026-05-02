@@ -89,7 +89,7 @@ if menu == "📂 Arşiv":
     bas_s = st.sidebar.time_input("Başlangıç Saati:", time(0, 0))
     bit_s = st.sidebar.time_input("Bitiş Saati:", time(23, 59))
 else:
-    hiz = st.sidebar.slider("Akış Hızı (Sn)", 1, 10, 3)
+    hiz = st.sidebar.slider("Akış Hızı (Sn)", 1, 10, 30)
     secili_dosya = st.sidebar.selectbox("Dosya Seç:", sorted(glob.glob("*.csv"), reverse=True)) if glob.glob("*.csv") else None
 
 # --- 5. ANA İŞLEM DÖNGÜSÜ ---
