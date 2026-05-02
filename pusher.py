@@ -8,6 +8,11 @@ import pandas as pd
 # --- AYARLAR ---
 BEKLEME_SURESI = 30 
 DB_ADI = "radar_gecmisi.db"
+ARSIV_KLASORU = "islenen_csvler"
+
+# Arşiv klasörü yoksa oluştur
+if not os.path.exists(ARSIV_KLASORU):
+    os.makedirs(ARSIV_KLASORU)
 
 def git_yolu_bul():
     yol = shutil.which("git")
@@ -22,31 +27,36 @@ def git_yolu_bul():
     return None
 
 def db_arsivle():
-    """Klasördeki CSV verilerini okur ve SQLite veritabanına işler."""
+    """CSV'leri okur, DB'ye yazar ve dosyayı arşiv klasörüne taşır."""
     csv_dosyalari = [f for f in os.listdir('.') if f.endswith('.csv')]
     if not csv_dosyalari: return
 
     try:
         conn = sqlite3.connect(DB_ADI)
-        # Tablo yoksa oluştur (Streamlit kodunla tam uyumlu kolonlar)
         conn.execute('''CREATE TABLE IF NOT EXISTS sinyaller 
                         (Z_Obj TEXT, Zaman TEXT, Deger REAL)''')
         
         for dosya in csv_dosyalari:
-            # CSV dosyasını oku (senin dosya_oku fonksiyonundaki mantıkla)
+            # CSV Oku
             df = pd.read_csv(dosya, sep=';', header=None, names=['A', 'B', 'Deger', 'Zaman'], on_bad_lines='skip')
-            # Sayısal dönüşüm ve temizlik
+            
+            # Veri Temizleme ve Formatlama
+            df['Zaman'] = df['Zaman'].astype(str).replace('nan', '')
             df['Deger'] = pd.to_numeric(df['Deger'].astype(str).str.replace(',', '.'), errors='coerce')
-            df['Zaman'] = df['Zaman'].astype(str).str.split(' ').str[-1]
+            df['Zaman'] = df['Zaman'].apply(lambda x: x.split(' ')[-1] if ' ' in x else x)
             df['Z_Obj'] = pd.to_datetime(df['Zaman'], format='%H:%M:%S', errors='coerce').astype(str)
             
-            # Veriyi DB'ye ekle (Mükerrer kaydı önlemek için basitçe ekliyoruz, 
-            # ileride 'to_sql' ile daha gelişmiş hale getirilebilir)
-            df[['Z_Obj', 'Zaman', 'Deger']].dropna().to_sql('sinyaller', conn, if_exists='append', index=False)
+            df_yaz = df[['Z_Obj', 'Zaman', 'Deger']].dropna(subset=['Zaman', 'Deger'])
             
-        conn.commit()
+            if not df_yaz.empty:
+                df_yaz.to_sql('sinyaller', conn, if_exists='append', index=False)
+                print(f"✅ {dosya} veritabanına işlendi.")
+            
+            # İşlenen dosyayı taşı (Mükerrer kaydı önlemek için en güvenli yol)
+            conn.commit() 
+            shutil.move(dosya, os.path.join(ARSIV_KLASORU, dosya))
+        
         conn.close()
-        print(f"✅ Arşiv: Veriler {DB_ADI} dosyasına işlendi.")
     except Exception as e:
         print(f"⚠️ DB Hatası: {e}")
 
@@ -57,29 +67,31 @@ def github_gonder():
         return
 
     try:
-        # Önce veriyi yerel arşive işle
+        # 1. Önce yerel arşivi güncelle
         db_arsivle()
 
-        # Git işlemleri
+        # 2. Git işlemlerini başlat
         subprocess.run([git_exe, "add", "."], check=True)
         
+        # Değişiklik var mı kontrolü
         status = subprocess.run([git_exe, "diff", "--cached", "--quiet"])
         if status.returncode == 0:
-            print(f"[{time.strftime('%H:%M:%S')}] Değişiklik yok, bekleniyor...")
+            print(f"[{time.strftime('%H:%M:%S')}] Yeni veri yok, bekleniyor...")
             return
 
-        print(f"[{time.strftime('%H:%M:%S')}] Yeni veri algılandı, gönderiliyor...")
+        print(f"[{time.strftime('%H:%M:%S')}] Veriler GitHub'a fırlatılıyor...")
         subprocess.run([git_exe, "commit", "-m", "Oto-Veri-Guncelleme"], capture_output=True)
         subprocess.run([git_exe, "pull", "origin", "main", "--rebase"], capture_output=True)
         subprocess.run([git_exe, "push", "origin", "main"], check=True)
         
-        print("✅ Başarılı: GitHub ve Streamlit güncellendi!")
+        print("🚀 Başarılı: seismicradar.streamlit.app güncellendi!")
 
     except Exception as e:
         print(f"🚨 Hata: {e}")
 
-print("🚀 Sismik Pusher + Arşivleyici v4.0")
-print("-" * 40)
+print("🚀 Sismik Otomatik Pusher v5.0 (Full Otomatik)")
+print(f"Döngü Süresi: {BEKLEME_SURESI} Saniye")
+print("-" * 45)
 
 while True:
     github_gonder()
