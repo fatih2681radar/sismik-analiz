@@ -10,7 +10,7 @@ BEKLEME_SURESI = 30
 DB_ADI = "radar_gecmisi.db"
 ARSIV_KLASORU = "islenen_csvler"
 
-# Arşiv klasörü yoksa oluştur
+# Gerekli klasörleri oluştur
 if not os.path.exists(ARSIV_KLASORU):
     os.makedirs(ARSIV_KLASORU)
 
@@ -27,9 +27,12 @@ def git_yolu_bul():
     return None
 
 def db_arsivle():
-    """CSV'leri okur, DB'ye yazar ve dosyayı arşiv klasörüne taşır."""
-    csv_dosyalari = [f for f in os.listdir('.') if f.endswith('.csv') and f != 'islenen_csvler']
-    if not csv_dosyalari: return
+    """Ana dizindeki CSV'leri DB'ye işler ve arşiv klasörüne taşır."""
+    csv_dosyalari = [f for f in os.listdir('.') if f.endswith('.csv')]
+    
+    if not csv_dosyalari:
+        print(f"[{time.strftime('%H:%M:%S')}] İşlenecek yeni CSV yok...")
+        return
 
     try:
         conn = sqlite3.connect(DB_ADI)
@@ -40,35 +43,33 @@ def db_arsivle():
             # CSV Oku
             df = pd.read_csv(dosya, sep=';', header=None, names=['A', 'B', 'Deger', 'Zaman'], on_bad_lines='skip')
             
-            # 1. Veri Tipini Metne Çevir (Float/Iterable hatasını engellemek için)
-            df['Zaman'] = df['Zaman'].astype(str).fillna('')
-            
-            # 2. Değerleri sayıya çevir
+            # 1. Veri Temizleme (Hataları önlemek için zorunlu string dönüşümü)
+            df['Zaman'] = df['Zaman'].astype(str).replace('nan', '')
             df['Deger'] = pd.to_numeric(df['Deger'].astype(str).str.replace(',', '.'), errors='coerce')
-            
-            # 3. Zaman formatını parçala (Güvenli yöntem)
             df['Zaman'] = df['Zaman'].apply(lambda x: str(x).split(' ')[-1] if ' ' in str(x) else str(x))
             
-            # 4. Z_Obj oluştur (Streamlit filtresi için tarih formatı)
-            df['Z_Obj'] = pd.to_datetime(df['Zaman'], format='%H:%M:%S', errors='coerce')
-            # Bugünün tarihini ekleyerek tam datetime objesi yap (Arşiv filtresi için kritik)
+            # 2. Tarih Damgası (Streamlit takvim filtresi için zorunlu)
             bugun = pd.Timestamp.now().strftime('%Y-%m-%d')
+            df['Z_Obj'] = pd.to_datetime(df['Zaman'], format='%H:%M:%S', errors='coerce')
             df['Z_Obj'] = df['Z_Obj'].apply(lambda x: f"{bugun} {x.strftime('%H:%M:%S')}" if pd.notnull(x) else None)
             
-            # 5. Geçersiz verileri temizle
+            # 3. Yazılacak veriyi hazırla
             df_yaz = df[['Z_Obj', 'Zaman', 'Deger']].dropna(subset=['Zaman', 'Deger'])
             
             if not df_yaz.empty:
+                # Veriyi DB'ye işle
                 df_yaz.to_sql('sinyaller', conn, if_exists='append', index=False)
-                print(f"✅ {dosya} veritabanına işlendi.")
-            
-            # Değişiklikleri kaydet ve dosyayı taşı
-            conn.commit() 
-            shutil.move(dosya, os.path.join(ARSIV_KLASORU, dosya))
+                conn.commit() 
+                print(f"✅ {dosya} -> {len(df_yaz)} satır veritabanına eklendi.")
+                
+                # İŞLEM BİTİNCE TAŞI (Canlı akışı kesmemek için ana dizinde dosya bırakmaz)
+                shutil.move(dosya, os.path.join(ARSIV_KLASORU, dosya))
+            else:
+                print(f"⚠️ {dosya} içinde geçerli veri bulunamadı!")
         
         conn.close()
     except Exception as e:
-        print(f"⚠️ DB Hatası: {e}")
+        print(f"❌ DB Hatası: {e}")
 
 def github_gonder():
     git_exe = git_yolu_bul()
@@ -77,31 +78,30 @@ def github_gonder():
         return
 
     try:
-        # 1. Önce yerel arşivi güncelle
+        # Önce verileri DB'ye aktar
         db_arsivle()
 
-        # 2. Git işlemlerini başlat
+        # Git komutlarını çalıştır
         subprocess.run([git_exe, "add", "."], check=True)
         
         # Değişiklik var mı kontrolü
         status = subprocess.run([git_exe, "diff", "--cached", "--quiet"])
         if status.returncode == 0:
-            print(f"[{time.strftime('%H:%M:%S')}] Değişiklik yok, bekleniyor...")
             return
 
-        print(f"[{time.strftime('%H:%M:%S')}] Veriler GitHub'a fırlatılıyor...")
+        print(f"[{time.strftime('%H:%M:%S')}] Veritabanı ve Arşiv GitHub'a gönderiliyor...")
         subprocess.run([git_exe, "commit", "-m", "Oto-Veri-Guncelleme"], capture_output=True)
         subprocess.run([git_exe, "pull", "origin", "main", "--rebase"], capture_output=True)
         subprocess.run([git_exe, "push", "origin", "main"], check=True)
         
-        print("🚀 Başarılı: seismicradar.streamlit.app güncellendi!")
+        print("🚀 Başarılı: Streamlit güncellendi!")
 
     except Exception as e:
-        print(f"🚨 GitHub Hatası: {e}")
+        print(f"🚨 Hata oluştu: {e}")
 
-print("🚀 Sismik Otomatik Pusher v6.0 (Stabil Sürüm)")
-print(f"Döngü Süresi: {BEKLEME_SURESI} Saniye")
-print("-" * 45)
+print("🚀 Sismik Otomatik Pusher v7.0 (Raporlamalı Sürüm)")
+print(f"Döngü: {BEKLEME_SURESI} Saniye | Veritabanı: {DB_ADI}")
+print("-" * 50)
 
 while True:
     github_gonder()
