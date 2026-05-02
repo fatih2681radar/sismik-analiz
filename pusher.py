@@ -4,7 +4,7 @@ import subprocess
 import shutil
 
 # --- AYARLAR ---
-BEKLEME_SURESI = 5  # 30 saniyede bir internete veri fırlatır
+BEKLEME_SURESI = 10  # 30 saniyede bir internete veri fırlatır
 
 def git_yolu_bul():
     # Sistemde 'git' komutu kayıtlı mı?
