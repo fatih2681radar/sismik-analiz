@@ -17,7 +17,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 2. ANALİZ PARAMETRELERİ ---
-P_HASSASIYET = 0.030
+P_HASSASIYET = 0.020
 RITIM_RISK = 1.6
 
 # --- 3. FONKSİYONLAR (GELİŞMİŞ ARŞİV VE DEPREM) ---
